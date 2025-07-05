@@ -7,29 +7,35 @@ The script relies on Windows Raw Pointer APIs to capture coalesced pen samples a
 ## Requirements
 
 - Windows 10 with the Windows 10 SDK installed
-- Python 3.8+ with `comtypes` and `pywinrt` packages installed
+ - Python 3.8+ with `comtypes` and `winrt` packages installed
 - Administrator privileges are required for input injection
 
 Install dependencies:
 
 ```bash
-pip install comtypes pywinrt
+pip install comtypes winrt
 ```
 
 ## Usage
 
-To record pen input:
+You can either run the script with command-line flags or use the built-in GUI.
+
+### Command line
+
+Record pen input:
 
 ```bash
 python record_pen.py --record
 ```
 
-Press the pen on the screen to draw. The samples will be saved to `recording.json` when the pen is lifted.
-
-To replay the recorded input:
+Replay the recorded input:
 
 ```bash
 python record_pen.py --replay
 ```
 
-The replay uses the timestamps stored in the JSON file to reproduce the drawing speed.
+### GUI
+
+Running the script without any arguments launches a simple window with
+**Record** and **Replay** buttons. Press **Record** to capture a stroke and
+save it to `recording.json`, or **Replay** to inject the saved events back.

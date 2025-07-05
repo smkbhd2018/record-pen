@@ -4,6 +4,8 @@ import ctypes
 import json
 import sys
 import time
+import threading
+import tkinter as tk
 from ctypes import wintypes
 
 try:
@@ -111,6 +113,7 @@ def wnd_proc(hwnd, msg, wparam, lparam):
         with open("recording.json", "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2)
         print("Recording saved to recording.json")
+        user32.PostQuitMessage(0)
     return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
 WNDCLASS = ctypes.Structure
@@ -163,6 +166,17 @@ def message_loop():
         user32.DispatchMessageW(ctypes.byref(msg))
 
 
+def record():
+    """Run the pointer message loop and save events to recording.json."""
+    records.clear()
+    create_message_window()
+    message_loop()
+    if hwnd:
+        user32.DestroyWindow(hwnd)
+    if atom:
+        user32.UnregisterClassW(atom, user32.GetModuleHandleW(None))
+
+
 def replay():
     if InputInjector is None:
         print("WinRT input injection APIs not available")
@@ -190,13 +204,32 @@ def replay():
 def main():
     if comtypes:
         comtypes.CoInitialize()
+
+    def run_gui():
+        root = tk.Tk()
+        root.title("Pen Recorder")
+        status = tk.StringVar(value="Idle")
+
+        def start_record():
+            status.set("Recording...")
+            threading.Thread(target=lambda: (record(), status.set("Idle")), daemon=True).start()
+
+        def start_replay():
+            status.set("Replaying...")
+            threading.Thread(target=lambda: (replay(), status.set("Idle")), daemon=True).start()
+
+        tk.Button(root, text="Record", command=start_record).pack(fill="x")
+        tk.Button(root, text="Replay", command=start_replay).pack(fill="x")
+        tk.Label(root, textvariable=status).pack(fill="x")
+        root.mainloop()
+
     if "--record" in sys.argv:
-        print("Recording started, press pen to draw...")
-        create_message_window()
-        message_loop()
+        record()
     elif "--replay" in sys.argv:
-        print("Replaying recording.json...")
         replay()
+    else:
+        run_gui()
+
     if comtypes:
         comtypes.CoUninitialize()
 
