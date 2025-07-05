@@ -16,6 +16,10 @@ import threading
 import tkinter as tk
 from ctypes import wintypes
 
+# Windows type aliases for systems that lack these in ctypes.wintypes
+UINT32 = getattr(wintypes, "UINT32", ctypes.c_uint32)
+INT32 = getattr(wintypes, "INT32", ctypes.c_int32)
+
 
 def is_admin() -> bool:
     """Return True if the script is running with administrator privileges."""
@@ -98,8 +102,8 @@ class POINT(ctypes.Structure):
 class POINTER_INFO(ctypes.Structure):
     _fields_ = [
         ("pointerType", wintypes.DWORD),
-        ("pointerId", wintypes.UINT32),
-        ("frameId", wintypes.UINT32),
+        ("pointerId", UINT32),
+        ("frameId", UINT32),
         ("pointerFlags", wintypes.DWORD),
         ("sourceDevice", wintypes.HANDLE),
         ("hwndTarget", wintypes.HWND),
@@ -108,8 +112,8 @@ class POINTER_INFO(ctypes.Structure):
         ("ptPixelLocationRaw", POINT),
         ("ptHimetricLocationRaw", POINT),
         ("dwTime", wintypes.DWORD),
-        ("historyCount", wintypes.UINT32),
-        ("inputData", wintypes.INT32),
+        ("historyCount", UINT32),
+        ("inputData", INT32),
         ("dwKeyStates", wintypes.DWORD),
         ("PerformanceCount", wintypes.ULONGLONG),
         ("ButtonChangeType", wintypes.DWORD),
@@ -120,10 +124,10 @@ class POINTER_PEN_INFO(ctypes.Structure):
         ("pointerInfo", POINTER_INFO),
         ("penFlags", wintypes.DWORD),
         ("penMask", wintypes.DWORD),
-        ("pressure", wintypes.UINT32),
-        ("rotation", wintypes.UINT32),
-        ("tiltX", wintypes.INT32),
-        ("tiltY", wintypes.INT32),
+        ("pressure", UINT32),
+        ("rotation", UINT32),
+        ("tiltX", INT32),
+        ("tiltY", INT32),
     ]
 
 
@@ -143,9 +147,9 @@ class POINTER_TYPE_INFO(ctypes.Structure):
 GetPointerFramePenInfoHistory = user32.GetPointerFramePenInfoHistory
 GetPointerFramePenInfoHistory.restype = wintypes.BOOL
 GetPointerFramePenInfoHistory.argtypes = [
-    wintypes.UINT32,
-    ctypes.POINTER(ctypes.c_uint32),
-    ctypes.POINTER(ctypes.c_uint32),
+    UINT32,
+    ctypes.POINTER(UINT32),
+    ctypes.POINTER(UINT32),
     ctypes.POINTER(POINTER_PEN_INFO),
 ]
 
@@ -154,7 +158,7 @@ InjectSyntheticPointerInput.restype = wintypes.BOOL
 InjectSyntheticPointerInput.argtypes = [
     wintypes.HANDLE,
     ctypes.POINTER(POINTER_TYPE_INFO),
-    wintypes.UINT32,
+    UINT32,
 ]
 
 # Additional Win32 APIs for injecting pointers without WinRT
@@ -179,7 +183,7 @@ records = []
 def wnd_proc(hwnd, msg, wparam, lparam):
     if msg in (WM_POINTERDOWN, WM_POINTERUPDATE, WM_POINTERUP):
         pointer_id = wparam & 0xFFFF
-        count = ctypes.c_uint32()
+        count = UINT32()
         # Query how many coalesced samples are available
         GetPointerFramePenInfoHistory(pointer_id, None, ctypes.byref(count), None)
         arr_type = POINTER_PEN_INFO * count.value
