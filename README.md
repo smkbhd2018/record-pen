@@ -1,49 +1,44 @@
 # Record Pen
 
-This repository provides a Python script `record_pen.py` for recording and replaying stylus (pen) input on Windows.
+This repository provides two ways to record and replay stylus (pen) input on Windows.
 
-The script relies on Windows Raw Pointer APIs to capture coalesced pen samples along with pressure values and stores them in `recording.json`. It replays those strokes using the Win32 synthetic pointer device API.
+- `record_pen.py` – the original Python implementation using ctypes.
+- `RecordPen` – a C# WinForms application that offers the same recording and replay functionality.
 
-## Requirements
+Both approaches store the captured samples in `recording.json` and replay them preserving timing and pressure.
+
+## Python approach
+
+The Python script relies on Windows Raw Pointer APIs and requires:
 
 - Windows 10 with the Windows 10 SDK installed
-- Python 3.8+ with `comtypes` installed (the optional `winrt` package is not required)
-- Administrator privileges are required for input injection
+- Python 3.8+ with `comtypes` installed
+- Administrator privileges for input injection
 
-Install dependencies (the script can attempt to install them automatically when
-run as administrator):
+Install the dependency (the script can auto-install when run as administrator):
 
 ```bash
 pip install comtypes
 ```
 
-## Usage
-
-You can either run the script with command-line flags or use the built-in GUI.
-
-### Command line
-
-Record pen input:
+Run the GUI or record from the command line:
 
 ```bash
-python record_pen.py --record
+python record_pen.py --record   # capture strokes
+python record_pen.py --replay   # replay them
 ```
 
-Replay the recorded input:
+Running without arguments launches a Tkinter window with **Record** and **Replay** buttons.
+
+## C# WinForms approach
+
+If the Python version does not work on your system, you can build the C# project instead. Install the .NET SDK 8.0 or newer, then run:
 
 ```bash
-python record_pen.py --replay
+cd RecordPen
+ dotnet build -c Release
 ```
 
-### GUI
+This produces `RecordPen.exe` in `bin/Release/net8.0-windows`. Run it to get a window with **Record** and **Replay** buttons. The application listens for pen input when **Record** is pressed and writes the data to `recording.json`. Selecting **Replay** injects the stored strokes back.
 
-Running the script without any arguments launches a simple window with
-**Record** and **Replay** buttons. Press **Record** to capture a stroke and
-save it to `recording.json`, or **Replay** to inject the saved events back.
-
-### Administrator privileges
-
-Replaying pen events requires elevated rights. When started without
-administrator privileges, the script will prompt to relaunch itself with the
-necessary permissions. Missing packages such as `comtypes` will be installed at
-startup when running as administrator.
+Administrator rights are still required for replaying input.
