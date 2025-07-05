@@ -1,4 +1,10 @@
-"""Record and replay pen input on Windows using Raw Pointer and Input Injection APIs."""
+"""Record and replay pen input on Windows.
+
+The script records WM_POINTER messages with pressure data using the Raw Pointer
+API and replays them with the Win32 synthetic pointer device APIs. It only
+depends on ``ctypes`` and ``comtypes``; the optional ``winrt`` package is not
+required.
+"""
 
 import ctypes
 import json
@@ -13,15 +19,11 @@ try:
 except ImportError:
     comtypes = None
 
+# The WinRT package `winrt` is not required. Set InputInjector to None to
+# indicate that the optional dependency is unavailable.
 try:
-    from winrt.windows.ui.input.preview.injection import (
-        InputInjector,
-        InjectedInputPenInfo,
-        InjectedInputPointerInfo,
-        InjectedInputPointerOptions,
-        InjectedInputPenButtons,
-    )
-except ImportError:
+    from winrt.windows.ui.input.preview.injection import InputInjector  # type: ignore
+except Exception:
     InputInjector = None
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -30,6 +32,20 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 WM_POINTERDOWN = 0x0246
 WM_POINTERUPDATE = 0x0247
 WM_POINTERUP = 0x0248
+
+# Pointer device constants
+PT_PEN = 0x00000003
+
+# Feedback mode
+POINTER_FEEDBACK_DEFAULT = 1
+
+# Basic pointer flags
+POINTER_FLAG_NONE = 0x00000000
+POINTER_FLAG_INRANGE = 0x00000002
+POINTER_FLAG_INCONTACT = 0x00000004
+POINTER_FLAG_DOWN = 0x00010000
+POINTER_FLAG_UPDATE = 0x00020000
+POINTER_FLAG_UP = 0x00040000
 
 # Structures from Win32 API
 class POINT(ctypes.Structure):
@@ -69,6 +85,19 @@ class POINTER_PEN_INFO(ctypes.Structure):
         ("tiltY", wintypes.INT32),
     ]
 
+
+class _POINTER_TYPE_INFO_UNION(ctypes.Union):
+    _fields_ = [
+        ("penInfo", POINTER_PEN_INFO),
+    ]
+
+
+class POINTER_TYPE_INFO(ctypes.Structure):
+    _fields_ = [
+        ("type", wintypes.DWORD),
+        ("DUMMYUNIONNAME", _POINTER_TYPE_INFO_UNION),
+    ]
+
 # Function prototypes
 GetPointerFramePenInfoHistory = user32.GetPointerFramePenInfoHistory
 GetPointerFramePenInfoHistory.restype = wintypes.BOOL
@@ -83,9 +112,22 @@ InjectSyntheticPointerInput = user32.InjectSyntheticPointerInput
 InjectSyntheticPointerInput.restype = wintypes.BOOL
 InjectSyntheticPointerInput.argtypes = [
     wintypes.HANDLE,
-    ctypes.POINTER(POINTER_PEN_INFO),
+    ctypes.POINTER(POINTER_TYPE_INFO),
     wintypes.UINT32,
 ]
+
+# Additional Win32 APIs for injecting pointers without WinRT
+CreateSyntheticPointerDevice = user32.CreateSyntheticPointerDevice
+CreateSyntheticPointerDevice.restype = wintypes.HANDLE
+CreateSyntheticPointerDevice.argtypes = [
+    wintypes.DWORD,  # POINTER_INPUT_TYPE
+    wintypes.ULONG,
+    wintypes.DWORD,  # POINTER_FEEDBACK_MODE
+]
+
+DestroySyntheticPointerDevice = user32.DestroySyntheticPointerDevice
+DestroySyntheticPointerDevice.restype = None
+DestroySyntheticPointerDevice.argtypes = [wintypes.HANDLE]
 
 # Message window setup
 WNDPROC = ctypes.WINFUNCTYPE(wintypes.LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
@@ -94,26 +136,35 @@ records = []
 
 @WNDPROC
 def wnd_proc(hwnd, msg, wparam, lparam):
-    if msg == WM_POINTERUPDATE:
+    if msg in (WM_POINTERDOWN, WM_POINTERUPDATE, WM_POINTERUP):
         pointer_id = wparam & 0xFFFF
         count = ctypes.c_uint32()
+        # Query how many coalesced samples are available
         GetPointerFramePenInfoHistory(pointer_id, None, ctypes.byref(count), None)
         arr_type = POINTER_PEN_INFO * count.value
         infos = arr_type()
         GetPointerFramePenInfoHistory(pointer_id, None, ctypes.byref(count), infos)
+        evt_type = {
+            WM_POINTERDOWN: "down",
+            WM_POINTERUPDATE: "move",
+            WM_POINTERUP: "up",
+        }[msg]
         for info in infos:
             pt = info.pointerInfo.ptPixelLocation
-            records.append({
-                "x": pt.x,
-                "y": pt.y,
-                "pressure": info.pressure,
-                "t": time.time(),
-            })
-    elif msg == WM_POINTERUP:
-        with open("recording.json", "w", encoding="utf-8") as f:
-            json.dump(records, f, indent=2)
-        print("Recording saved to recording.json")
-        user32.PostQuitMessage(0)
+            records.append(
+                {
+                    "type": evt_type,
+                    "x": pt.x,
+                    "y": pt.y,
+                    "pressure": info.pressure,
+                    "t": time.time(),
+                }
+            )
+        if msg == WM_POINTERUP:
+            with open("recording.json", "w", encoding="utf-8") as f:
+                json.dump(records, f, indent=2)
+            print("Recording saved to recording.json")
+            user32.PostQuitMessage(0)
     return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
 WNDCLASS = ctypes.Structure
@@ -178,27 +229,45 @@ def record():
 
 
 def replay():
-    if InputInjector is None:
-        print("WinRT input injection APIs not available")
-        return
+    """Replay events stored in recording.json using synthetic pointer APIs."""
     with open("recording.json", "r", encoding="utf-8") as f:
         events = json.load(f)
-    injector = InputInjector.try_create()
-    if injector is None:
-        print("Failed to create InputInjector")
+
+    device = CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_DEFAULT)
+    if not device:
+        print("Failed to create synthetic pen device")
         return
-    prev_t = None
-    for ev in events:
-        if prev_t is not None:
-            time.sleep(max(ev["t"] - prev_t, 0))
-        prev_t = ev["t"]
-        pen = InjectedInputPenInfo()
-        info = InjectedInputPointerInfo()
-        info.pointer_options = InjectedInputPointerOptions.IN_CONTACT | InjectedInputPointerOptions.PEN
-        info.pixel_location = POINT(ev["x"], ev["y"])
-        pen.pointer_info = info
-        pen.pressure = int(ev["pressure"])
-        injector.inject_pen_input([pen])
+
+    try:
+        prev_t = None
+        for ev in events:
+            if prev_t is not None:
+                time.sleep(max(ev["t"] - prev_t, 0))
+            prev_t = ev["t"]
+
+            pointer = POINTER_TYPE_INFO()
+            pointer.type = PT_PEN
+            pen = pointer.DUMMYUNIONNAME.penInfo
+            pen.pointerInfo.pointerType = PT_PEN
+            pen.pointerInfo.pointerId = 0
+            if ev["type"] == "down":
+                pen.pointerInfo.pointerFlags = (
+                    POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT
+                )
+            elif ev["type"] == "up":
+                pen.pointerInfo.pointerFlags = POINTER_FLAG_UP
+            else:
+                pen.pointerInfo.pointerFlags = (
+                    POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT
+                )
+            pen.pointerInfo.ptPixelLocation = POINT(int(ev["x"]), int(ev["y"]))
+            pen.penFlags = 0
+            pen.penMask = 1  # PEN_MASK_PRESSURE
+            pen.pressure = int(ev["pressure"])
+
+            InjectSyntheticPointerInput(device, ctypes.byref(pointer), 1)
+    finally:
+        DestroySyntheticPointerDevice(device)
 
 
 def main():

@@ -2,18 +2,18 @@
 
 This repository provides a Python script `record_pen.py` for recording and replaying stylus (pen) input on Windows.
 
-The script relies on Windows Raw Pointer APIs to capture coalesced pen samples along with pressure values and stores them in `recording.json`. It can also replay the captured strokes using the Input Injection API via WinRT.
+The script relies on Windows Raw Pointer APIs to capture coalesced pen samples along with pressure values and stores them in `recording.json`. It replays those strokes using the Win32 synthetic pointer device API.
 
 ## Requirements
 
 - Windows 10 with the Windows 10 SDK installed
- - Python 3.8+ with `comtypes` and `winrt` packages installed
+- Python 3.8+ with `comtypes` installed (the optional `winrt` package is not required)
 - Administrator privileges are required for input injection
 
 Install dependencies:
 
 ```bash
-pip install comtypes winrt
+pip install comtypes
 ```
 
 ## Usage
