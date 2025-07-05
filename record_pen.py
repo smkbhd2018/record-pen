@@ -8,11 +8,52 @@ required.
 
 import ctypes
 import json
+import os
+import subprocess
 import sys
 import time
 import threading
 import tkinter as tk
 from ctypes import wintypes
+
+
+def is_admin() -> bool:
+    """Return True if the script is running with administrator privileges."""
+    if os.name != "nt":
+        return True
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def relaunch_as_admin():
+    """Relaunch the current script with elevated rights."""
+    if os.name != "nt" or is_admin():
+        return False
+    params = " ".join(f'"{a}"' for a in sys.argv)
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+    sys.exit(0)
+
+
+def ensure_dependencies():
+    """Install required Python packages if missing."""
+    missing = []
+    try:
+        import comtypes  # noqa: F401
+    except Exception:
+        missing.append("comtypes")
+
+    if missing and is_admin():
+        subprocess.call([sys.executable, "-m", "pip", "install", *missing])
+
+    # Reload comtypes if it was just installed
+    global comtypes
+    try:
+        import comtypes as _comtypes
+        comtypes = _comtypes
+    except Exception:
+        comtypes = None
 
 try:
     import comtypes
@@ -271,6 +312,11 @@ def replay():
 
 
 def main():
+    # Relaunch with admin rights if necessary
+    relaunch_as_admin()
+
+    ensure_dependencies()
+
     if comtypes:
         comtypes.CoInitialize()
 
